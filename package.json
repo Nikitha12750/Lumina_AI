@@ -1,0 +1,14 @@
+{
+    "name": "lumina-ai-root",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "install:all": "npm install && npm install --prefix client && npm install --prefix server",
+        "dev": "concurrently \"npm run server\" \"npm run client\"",
+        "client": "npm run dev --prefix client",
+        "server": "npm start --prefix server"
+    },
+    "devDependencies": {
+        "concurrently": "^9.1.0"
+    }
+}
