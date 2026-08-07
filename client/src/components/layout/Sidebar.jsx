@@ -1,69 +1,99 @@
+import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
-import { LayoutDashboard, Layers, History, LogOut } from 'lucide-react';
+import { PenTool, Layers, Clock, LogOut, Sparkles, User, FileText, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { motion } from 'framer-motion';
 
 const Sidebar = () => {
     const location = useLocation();
-    const { logout } = useAuth();
+    const { user, logout } = useAuth();
 
     const navItems = [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+        { name: 'Writing Studio', path: '/', icon: PenTool },
         { name: 'Templates', path: '/templates', icon: Layers },
-        { name: 'History', path: '/history', icon: History },
+        { name: 'History', path: '/history', icon: Clock },
     ];
 
     return (
-        <aside className="w-64 fixed left-0 top-0 bottom-0 bg-black/40 backdrop-blur-xl border-r border-white/10 z-50 flex flex-col">
-            <div className="h-16 flex items-center px-6 border-b border-white/10">
-                <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-cyan to-brand-violet flex items-center justify-center">
-                        <span className="font-bold text-white text-lg">L</span>
-                    </div>
-                    <span className="font-heading font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
-                        Lumina AI
-                    </span>
+        <aside className="w-[220px] fixed left-0 top-0 bottom-0 bg-[#171A21] border-r border-white/[0.08] z-50 flex flex-col justify-between select-none">
+            {/* Header / Brand */}
+            <div>
+                <div className="h-14 px-4 flex items-center justify-between border-b border-white/[0.08]">
+                    <Link to="/" className="flex items-center gap-2.5 group">
+                        <div className="w-6 h-6 rounded-[5px] bg-[#4F8EF7] flex items-center justify-center text-white text-xs font-semibold shadow-sm">
+                            L
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                            <span className="font-semibold text-sm text-[#F8FAFC] tracking-tight">
+                                Lumina
+                            </span>
+                            <span className="text-[10px] text-[#64748B] font-mono">
+                                Studio
+                            </span>
+                        </div>
+                    </Link>
                 </div>
+
+                {/* Navigation Links */}
+                <nav className="p-2 space-y-1 mt-2">
+                    <div className="px-2 py-1 text-[10px] font-semibold text-[#64748B] uppercase tracking-wider">
+                        Workspace
+                    </div>
+                    {navItems.map((item) => {
+                        const isActive = location.pathname === item.path;
+                        return (
+                            <Link key={item.path} to={item.path}>
+                                <div
+                                    className={cn(
+                                        "flex items-center gap-2.5 px-2.5 py-1.5 rounded-[6px] text-xs font-medium transition-colors duration-100",
+                                        isActive
+                                            ? "text-[#F8FAFC] bg-[#1D212A] border border-white/[0.08]"
+                                            : "text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-white/[0.04]"
+                                    )}
+                                >
+                                    <item.icon className={cn("w-4 h-4", isActive ? "text-[#4F8EF7]" : "text-[#64748B]")} />
+                                    <span>{item.name}</span>
+                                </div>
+                            </Link>
+                        );
+                    })}
+                </nav>
             </div>
 
-            <nav className="flex-1 p-4 space-y-2">
-                {navItems.map((item) => {
-                    const isActive = location.pathname === item.path;
-                    return (
-                        <Link key={item.path} to={item.path}>
-                            <div
-                                className={cn(
-                                    "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group relative overflow-hidden",
-                                    isActive
-                                        ? "text-white bg-white/10 border border-white/10"
-                                        : "text-slate-400 hover:text-white hover:bg-white/5"
-                                )}
-                            >
-                                {isActive && (
-                                    <motion.div
-                                        layoutId="activeNav"
-                                        className="absolute inset-0 bg-brand-cyan/10"
-                                        initial={false}
-                                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                    />
-                                )}
-                                <item.icon className={cn("w-5 h-5", isActive ? "text-brand-cyan" : "group-hover:text-brand-cyan transition-colors")} />
-                                <span className="relative z-10 font-medium">{item.name}</span>
-                            </div>
-                        </Link>
-                    );
-                })}
-            </nav>
+            {/* Footer / Account & Credits */}
+            <div className="p-3 border-t border-white/[0.08] space-y-2.5 bg-[#171A21]">
+                {/* Credit balance indicator */}
+                <div className="px-2.5 py-2 rounded-[6px] bg-[#1D212A] border border-white/[0.06] flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#4F8EF7]" />
+                        <span className="text-[11px] text-[#94A3B8]">Credits</span>
+                    </div>
+                    <span className="text-xs font-mono font-semibold text-[#F8FAFC]">
+                        {user?.credits ?? 0}
+                    </span>
+                </div>
 
-            <div className="p-4 border-t border-white/10">
-                <button
-                    onClick={logout}
-                    className="flex items-center gap-3 px-4 py-3 w-full rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                    <LogOut className="w-5 h-5" />
-                    <span className="font-medium">Sign Out</span>
-                </button>
+                {/* User Row & Logout */}
+                <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                        <div className="w-6 h-6 rounded-full bg-[#1D212A] border border-white/10 flex items-center justify-center text-[10px] font-medium text-[#94A3B8] shrink-0">
+                            {user?.username?.[0]?.toUpperCase() || 'U'}
+                        </div>
+                        <div className="truncate">
+                            <p className="text-[11px] font-medium text-[#F8FAFC] truncate">
+                                {user?.username || 'Writer'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={logout}
+                        title="Sign Out"
+                        className="text-[#64748B] hover:text-[#F8FAFC] hover:bg-white/[0.06] p-1.5 rounded-[4px] transition-colors"
+                    >
+                        <LogOut className="w-3.5 h-3.5" />
+                    </button>
+                </div>
             </div>
         </aside>
     );

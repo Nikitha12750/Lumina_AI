@@ -1,21 +1,69 @@
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
-import { Copy, Calendar, ArrowUpRight, History as HistoryIcon } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
+import {
+    Clock, ArrowRight, Copy, Check, FileText,
+    Calendar, ArrowUpRight, Search, ChevronRight, CornerDownLeft
+} from 'lucide-react';
 
 const History = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const [search, setSearch] = useState('');
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [copied, setCopied] = useState(false);
 
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text);
-        // Could add toast here
+    const historyItems = user?.history || [];
+
+    // Group items chronologically
+    const groupHistory = () => {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const yesterday = today - 86400000;
+        const lastWeek = today - 86400000 * 7;
+
+        const groups = {
+            Today: [],
+            Yesterday: [],
+            'Last Week': [],
+            Older: [],
+        };
+
+        historyItems.forEach((item) => {
+            if (search && !item.prompt.toLowerCase().includes(search.toLowerCase()) &&
+                !item.response.toLowerCase().includes(search.toLowerCase())) {
+                return;
+            }
+
+            const itemDate = new Date(item.createdAt).getTime();
+            if (itemDate >= today) {
+                groups.Today.push(item);
+            } else if (itemDate >= yesterday) {
+                groups.Yesterday.push(item);
+            } else if (itemDate >= lastWeek) {
+                groups['Last Week'].push(item);
+            } else {
+                groups.Older.push(item);
+            }
+        });
+
+        return groups;
     };
 
-    const runAgain = (item) => {
+    const grouped = groupHistory();
+    const hasAnyItems = historyItems.length > 0;
+
+    const handleCopy = (text) => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleOpenInStudio = (item) => {
         navigate('/', {
             state: {
                 prompt: item.prompt,
@@ -25,72 +73,145 @@ const History = () => {
         });
     };
 
-    if (!user?.history || user.history.length === 0) {
+    if (!hasAnyItems) {
         return (
-            <div className="h-[60vh] flex flex-col items-center justify-center text-center space-y-6">
-                <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center">
-                    <HistoryIcon className="w-10 h-10 text-slate-500" />
+            <div className="max-w-xl mx-auto py-24 text-center space-y-4 animate-in fade-in duration-150">
+                <div className="w-10 h-10 rounded-[6px] bg-[#171A21] border border-white/[0.08] flex items-center justify-center mx-auto text-[#64748B]">
+                    <Clock className="w-5 h-5" />
                 </div>
                 <div>
-                    <h3 className="text-xl font-semibold text-white">No history yet</h3>
-                    <p className="text-slate-400 mt-2 max-w-sm mx-auto">
-                        Once you start generating content, your history will appear here.
+                    <h3 className="text-sm font-semibold text-[#F8FAFC]">No drafts saved yet</h3>
+                    <p className="text-xs text-[#94A3B8] mt-1 max-w-sm mx-auto">
+                        Generations from the Writing Studio will automatically be indexed here chronologically.
                     </p>
                 </div>
-                <Button onClick={() => navigate('/')}>
-                    Start Creating
+                <Button variant="primary" onClick={() => navigate('/')}>
+                    Open Writing Studio
                 </Button>
             </div>
         );
     }
 
     return (
-        <div className="space-y-8">
-            <div className="space-y-2">
-                <h2 className="text-3xl font-heading font-bold text-white">History</h2>
-                <p className="text-slate-400">View and manage your past generations.</p>
+        <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-150">
+            {/* Header & Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-xl font-semibold text-[#F8FAFC] tracking-tight">
+                        Generation Archive
+                    </h1>
+                    <p className="text-xs text-[#94A3B8] mt-1">
+                        Review, reuse, and export your previous drafts.
+                    </p>
+                </div>
+
+                <div className="relative w-full sm:w-64">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]" />
+                    <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search history..."
+                        className="pl-8 text-xs bg-[#171A21] border-white/[0.08]"
+                    />
+                </div>
             </div>
 
-            <div className="space-y-4">
-                {user.history.map((item, idx) => (
-                    <motion.div
-                        key={idx}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                    >
-                        <Card className="hover:border-white/20 transition-colors">
-                            <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-center mb-4">
+            {/* Main Content Layout: List on Left, Preview on Right */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                {/* Chronological List (5 cols) */}
+                <div className="lg:col-span-5 space-y-5">
+                    {Object.entries(grouped).map(([label, items]) => {
+                        if (items.length === 0) return null;
+                        return (
+                            <div key={label} className="space-y-1.5">
+                                <p className="text-[10px] font-mono font-medium text-[#64748B] uppercase tracking-wider px-1">
+                                    {label}
+                                </p>
                                 <div className="space-y-1">
-                                    <div className="flex items-center gap-3">
-                                        <Badge variant="default" className="uppercase tracking-wider text-[10px]">
-                                            {item.contentType}
-                                        </Badge>
-                                        <div className="flex items-center gap-1 text-xs text-slate-500">
-                                            <Calendar className="w-3 h-3" />
-                                            {new Date(item.createdAt).toLocaleDateString()}
-                                        </div>
-                                    </div>
-                                    <h3 className="text-lg font-medium text-white line-clamp-1">{item.prompt}</h3>
+                                    {items.map((item, idx) => {
+                                        const isSelected = selectedItem === item;
+                                        return (
+                                            <div
+                                                key={idx}
+                                                onClick={() => setSelectedItem(item)}
+                                                className={`p-3 rounded-[6px] border text-left cursor-pointer transition-colors duration-100 ${
+                                                    isSelected
+                                                        ? 'bg-[#1D212A] border-[#4F8EF7]/40'
+                                                        : 'bg-[#171A21] border-white/[0.06] hover:bg-[#1D212A] hover:border-white/[0.12]'
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between gap-2 mb-1">
+                                                    <span className="text-xs font-medium text-[#F8FAFC] truncate">
+                                                        {item.prompt}
+                                                    </span>
+                                                    <Badge variant="outline" className="text-[9px] shrink-0">
+                                                        {item.contentType}
+                                                    </Badge>
+                                                </div>
+                                                <div className="flex items-center justify-between text-[10px] text-[#64748B]">
+                                                    <span>{item.tone}</span>
+                                                    <span>{new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                                <div className="flex gap-2 w-full md:w-auto">
-                                    <Button size="sm" variant="secondary" onClick={() => copyToClipboard(item.response)}>
-                                        <Copy className="w-3 h-3 mr-2" />
-                                        Copy
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Selected Item Full Preview (7 cols) */}
+                <div className="lg:col-span-7 bg-[#171A21] border border-white/[0.08] rounded-[8px] p-5 shadow-subtle min-h-[420px]">
+                    {selectedItem ? (
+                        <div className="space-y-4">
+                            {/* Actions Header */}
+                            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+                                <div className="space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant="accent">{selectedItem.contentType}</Badge>
+                                        <span className="text-[11px] text-[#64748B]">{selectedItem.tone}</span>
+                                    </div>
+                                    <p className="text-xs text-[#94A3B8] line-clamp-1 font-medium mt-1">
+                                        {selectedItem.prompt}
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => handleCopy(selectedItem.response)}
+                                        className="gap-1.5"
+                                    >
+                                        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                        <span>{copied ? 'Copied' : 'Copy'}</span>
                                     </Button>
-                                    <Button size="sm" variant="outline" onClick={() => runAgain(item)}>
-                                        <ArrowUpRight className="w-3 h-3 mr-2" />
-                                        Reuse
+
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={() => handleOpenInStudio(selectedItem)}
+                                        className="gap-1.5"
+                                    >
+                                        <ArrowUpRight className="w-3.5 h-3.5" />
+                                        <span>Open in Studio</span>
                                     </Button>
                                 </div>
                             </div>
 
-                            <div className="p-4 rounded-lg bg-black/20 border border-white/5 font-mono text-sm text-slate-300 leading-relaxed max-h-32 overflow-y-auto custom-scrollbar">
-                                {item.response}
+                            {/* Markdown Preview */}
+                            <div className="overflow-y-auto max-h-[480px] pr-2">
+                                <MarkdownRenderer content={selectedItem.response} />
                             </div>
-                        </Card>
-                    </motion.div>
-                ))}
+                        </div>
+                    ) : (
+                        <div className="h-[380px] flex flex-col items-center justify-center text-center text-[#64748B]">
+                            <FileText className="w-8 h-8 mb-2 stroke-[1.5]" />
+                            <p className="text-xs">Select any draft on the left to read and inspect.</p>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

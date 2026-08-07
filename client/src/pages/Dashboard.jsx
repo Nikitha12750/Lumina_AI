@@ -1,246 +1,475 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
 import {
-    Sparkles, Copy, Check, Wand2, Zap,
-    Type, AlignLeft, RefreshCw
+    PenTool, Copy, Check, RefreshCw, Download, FileText, ArrowRight,
+    Sparkles, CornerDownLeft, Maximize2, Edit3, Eye, Clock, Hash,
+    Sliders, BookOpen, Layers, ArrowLeft
 } from 'lucide-react';
 import api from '../lib/api';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Input, Label, Select } from '../components/ui/Input';
+import { Textarea, Label, Select, Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
-import { Loader } from '../components/ui/Loader';
-import { motion, AnimatePresence } from 'framer-motion';
+import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
+
+const CONTENT_TYPES = [
+    { label: 'Blog Post & Essay', value: 'Blog Post' },
+    { label: 'LinkedIn Article', value: 'LinkedIn Post' },
+    { label: 'Twitter / X Thread', value: 'Tweet Thread' },
+    { label: 'Email Newsletter', value: 'Email' },
+    { label: 'Product Launch Copy', value: 'Product Description' },
+    { label: 'Technical Deep Dive', value: 'Code Snippet' },
+    { label: 'Executive Brief', value: 'Ad Copy' },
+];
+
+const TONE_PRESETS = [
+    { label: 'Authoritative & Sharp', value: 'Authoritative' },
+    { label: 'Clear & Concise', value: 'Concise' },
+    { label: 'Thought Leadership', value: 'Professional' },
+    { label: 'Engaging Storyteller', value: 'Engaging' },
+    { label: 'Provocative & Growth', value: 'Dramatic' },
+    { label: 'Casual & Direct', value: 'Casual' },
+];
+
+const QUICK_STARTERS = [
+    { title: 'SaaS Launch Announcement', prompt: 'Announcing the v2.0 release of our developer productivity platform with 10x faster indexing and team collaboration.', type: 'Blog Post', tone: 'Professional' },
+    { title: 'Lessons from 0 to 10k Users', prompt: '5 counterintuitive lessons learned scaling a bootstrapped software business to the first 10,000 active users.', type: 'LinkedIn Post', tone: 'Authoritative' },
+    { title: 'Technical Architecture Breakdown', prompt: 'Why we migrated our core pipeline from a monolith to distributed event streams and how we handled zero-downtime.', type: 'Blog Post', tone: 'Concise' },
+    { title: 'Weekly Executive Newsletter', prompt: 'Curated breakdown of this week’s top shifts in AI engineering, developer tools, and operational efficiency.', type: 'Email', tone: 'Engaging' },
+];
 
 const Dashboard = () => {
     const { user, checkUserLoggedIn } = useAuth();
     const location = useLocation();
 
-    // State
+    // Input States
     const [prompt, setPrompt] = useState('');
     const [contentType, setContentType] = useState('Blog Post');
     const [tone, setTone] = useState('Professional');
+    const [audience, setAudience] = useState('Product Leaders & Developers');
+
+    // Execution States
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState('');
-    const [streamedResult, setStreamedResult] = useState('');
+    const [isEditing, setIsEditing] = useState(false);
+    const [editableText, setEditableText] = useState('');
     const [copied, setCopied] = useState(false);
+    const [hasGenerated, setHasGenerated] = useState(false);
+    const [errorMsg, setErrorMsg] = useState('');
 
-    // Prefill from Templates
+    const textareaRef = useRef(null);
+
+    // Prefill from Templates / Navigation
     useEffect(() => {
         if (location.state) {
             if (location.state.prompt) setPrompt(location.state.prompt);
             if (location.state.type) setContentType(location.state.type);
             if (location.state.tone) setTone(location.state.tone);
+            if (location.state.autoGenerate) {
+                // Focus textarea
+                setTimeout(() => textareaRef.current?.focus(), 100);
+            }
         }
     }, [location.state]);
 
-    // Streaming Effect
-    useEffect(() => {
-        if (!result) {
-            setStreamedResult('');
+    // Calculate document statistics
+    const wordCount = (isEditing ? editableText : result) ? (isEditing ? editableText : result).trim().split(/\s+/).filter(Boolean).length : 0;
+    const charCount = (isEditing ? editableText : result)?.length || 0;
+    const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+
+    // Get time-appropriate greeting
+    const getGreeting = () => {
+        const hour = new Date().getHours();
+        if (hour < 12) return 'Good morning';
+        if (hour < 18) return 'Good afternoon';
+        return 'Good evening';
+    };
+
+    // Main Generation Handler
+    const handleGenerate = async (overridePrompt, overrideTone) => {
+        const activePrompt = overridePrompt || prompt;
+        const activeTone = overrideTone || tone;
+
+        if (!activePrompt.trim()) return;
+        if (user?.credits <= 0) {
+            setErrorMsg('Insufficient credits. Please contact support or upgrade.');
             return;
         }
 
-        let i = 0;
-        setStreamedResult('');
-        const interval = setInterval(() => {
-            setStreamedResult(prev => prev + result.charAt(i));
-            i++;
-            if (i >= result.length) clearInterval(interval);
-        }, 15); // Speed of typing
-
-        return () => clearInterval(interval);
-    }, [result]);
-
-    const handleGenerate = async (e) => {
-        e.preventDefault();
-        if (!prompt) return;
-        if (user?.credits <= 0) return;
-
+        setErrorMsg('');
         setLoading(true);
-        setResult('');
-        setStreamedResult('');
 
         try {
-            // Removed 'const token = localStorage.getItem('token');' as api instance handles auth
-            const res = await api.post('/generate',
-                { prompt, contentType, tone }
-            );
+            const res = await api.post('/api/generate', {
+                prompt: activePrompt,
+                contentType,
+                tone: activeTone
+            });
 
-            setResult(res.data.response);
-            await checkUserLoggedIn(); // Refresh credits
+            const generatedContent = res.data.response;
+            setResult(generatedContent);
+            setEditableText(generatedContent);
+            setHasGenerated(true);
+            await checkUserLoggedIn(); // Update credit count in state
         } catch (err) {
-            console.error(err);
-            setResult('Error generating content. Please try again later.');
+            console.error('Generation Error:', err);
+            setErrorMsg(err.response?.data?.msg || 'Generation failed. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
-    const copyToClipboard = () => {
-        navigator.clipboard.writeText(result);
+    // Quick Refinement Action (e.g. "Make punchier", "Expand")
+    const handleQuickRefine = (instruction) => {
+        const refinementPrompt = `Original Draft:\n"""${result}"""\n\nInstruction: Please refine and rewrite the draft above following this directive: "${instruction}". Keep the core message but optimize accordingly.`;
+        handleGenerate(refinementPrompt, tone);
+    };
+
+    // Copy to clipboard
+    const handleCopy = () => {
+        const textToCopy = isEditing ? editableText : result;
+        navigator.clipboard.writeText(textToCopy);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const contentTypes = ['Blog Post', 'Tweet', 'Email', 'Product Description', 'Ad Copy', 'Story', 'Code Snippet'];
-    const tones = ['Professional', 'Casual', 'Excited', 'Witty', 'Empathetic', 'Dramatic', 'Grumpy'];
+    // Export as Markdown file
+    const handleExport = (extension = 'md') => {
+        const textToExport = isEditing ? editableText : result;
+        const blob = new Blob([textToExport], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const cleanTitle = prompt.slice(0, 24).replace(/[^a-zA-Z0-9]/g, '_') || 'lumina_draft';
+        link.href = url;
+        link.download = `${cleanTitle}.${extension}`;
+        link.click();
+        URL.revokeObjectURL(url);
+    };
 
-    return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
+    // Reset back to centered input canvas
+    const handleNewDraft = () => {
+        setHasGenerated(false);
+        setResult('');
+        setEditableText('');
+        setPrompt('');
+        setIsEditing(false);
+        setTimeout(() => textareaRef.current?.focus(), 50);
+    };
 
-            {/* Left Panel: Input */}
-            <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.5 }}
-                className="space-y-6"
-            >
-                <div>
-                    <h2 className="text-3xl font-heading font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60 mb-2">
-                        Create Content
-                    </h2>
-                    <p className="text-slate-400">Ignite your ideas with AI-powered generation.</p>
+    // Keyboard shortcut handler (⌘ + Enter)
+    const handleKeyDown = (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            handleGenerate();
+        }
+    };
+
+    // =========================================================================
+    // VIEW 1: BEFORE GENERATION — Large Centered Focus Workspace
+    // =========================================================================
+    if (!hasGenerated && !loading) {
+        return (
+            <div className="max-w-3xl mx-auto py-8 px-4 animate-in fade-in duration-150">
+                {/* Header Greeting */}
+                <div className="mb-8">
+                    <p className="text-xs font-mono text-[#64748B] uppercase tracking-wider mb-1.5">
+                        {getGreeting()}, {user?.username || 'Writer'}
+                    </p>
+                    <h1 className="text-2xl font-semibold text-[#F8FAFC] tracking-tight">
+                        What would you like to create today?
+                    </h1>
                 </div>
 
-                <Card className="border-brand-violet/20 bg-black/40 shadow-2xl shadow-brand-violet/5">
-                    <form onSubmit={handleGenerate} className="space-y-6">
-                        <div className="space-y-2">
-                            <Label>What should Lumina create?</Label>
-                            <textarea
-                                className="glass-input w-full min-h-[160px] rounded-lg p-4 resize-none text-base bg-black/40 focus:bg-black/60 transition-colors"
-                                placeholder="Describe your topic in detail..."
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                required
+                {/* Main Writing Console */}
+                <div className="bg-[#171A21] border border-white/[0.08] rounded-[8px] p-5 shadow-subtle mb-6">
+                    <Label className="text-xs text-[#94A3B8] font-medium flex items-center justify-between mb-2">
+                        <span>Campaign Brief & Notes</span>
+                        <span className="text-[10px] text-[#64748B] font-mono">
+                            {prompt.length} chars
+                        </span>
+                    </Label>
+
+                    <Textarea
+                        ref={textareaRef}
+                        rows={6}
+                        placeholder="Outline your thesis, paste rough thoughts, meeting notes, or describe the topic you want to draft..."
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        className="bg-[#1D212A] border-white/[0.08] text-sm text-[#F8FAFC] leading-relaxed p-3.5 focus:border-[#4F8EF7] mb-4"
+                        autoFocus
+                    />
+
+                    {/* Controls Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+                        <div>
+                            <Label className="text-[11px] text-[#64748B]">Content Type</Label>
+                            <Select
+                                value={contentType}
+                                onChange={(e) => setContentType(e.target.value)}
+                                className="bg-[#1D212A] border-white/[0.08] text-xs text-[#F8FAFC]"
+                            >
+                                {CONTENT_TYPES.map((t) => (
+                                    <option key={t.value} value={t.value}>{t.label}</option>
+                                ))}
+                            </Select>
+                        </div>
+
+                        <div>
+                            <Label className="text-[11px] text-[#64748B]">Tone of Voice</Label>
+                            <Select
+                                value={tone}
+                                onChange={(e) => setTone(e.target.value)}
+                                className="bg-[#1D212A] border-white/[0.08] text-xs text-[#F8FAFC]"
+                            >
+                                {TONE_PRESETS.map((t) => (
+                                    <option key={t.value} value={t.value}>{t.label}</option>
+                                ))}
+                            </Select>
+                        </div>
+
+                        <div>
+                            <Label className="text-[11px] text-[#64748B]">Target Audience</Label>
+                            <Input
+                                value={audience}
+                                onChange={(e) => setAudience(e.target.value)}
+                                placeholder="e.g. Founders, Engineers"
+                                className="bg-[#1D212A] border-white/[0.08] text-xs text-[#F8FAFC]"
                             />
                         </div>
+                    </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Content Type</Label>
-                                <Select value={contentType} onChange={(e) => setContentType(e.target.value)}>
-                                    {contentTypes.map(t => <option key={t} value={t} className="bg-slate-900">{t}</option>)}
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Tone</Label>
-                                <Select value={tone} onChange={(e) => setTone(e.target.value)}>
-                                    {tones.map(t => <option key={t} value={t} className="bg-slate-900">{t}</option>)}
-                                </Select>
-                            </div>
+                    {/* Error Banner if any */}
+                    {errorMsg && (
+                        <div className="p-3 mb-4 rounded-[6px] bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                            {errorMsg}
                         </div>
-
-                        <div className="pt-4">
-                            <Button
-                                type="submit"
-                                className="w-full text-lg h-14 group relative overflow-hidden"
-                                disabled={loading || user?.credits <= 0}
-                                isLoading={loading}
-                            >
-                                <div className="absolute inset-0 bg-gradient-to-r from-brand-cyan via-white to-brand-cyan opacity-20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                                <span className="relative z-10 flex items-center gap-2">
-                                    {loading ? 'Igniting AI...' : (
-                                        <>
-                                            <Sparkles className="w-5 h-5 fill-current" />
-                                            Ignite AI
-                                        </>
-                                    )}
-                                </span>
-                            </Button>
-                            {user?.credits <= 0 && (
-                                <p className="text-center text-red-400 text-sm mt-3">
-                                    Out of credits! Check back later.
-                                </p>
-                            )}
-                        </div>
-                    </form>
-                </Card>
-            </motion.div>
-
-            {/* Right Panel: Output */}
-            <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="relative flex flex-col h-full min-h-[500px]"
-            >
-                <div className="absolute inset-0 bg-brand-cyan/5 blur-3xl -z-10 rounded-full opacity-20" />
-
-                <h2 className="text-2xl font-heading font-semibold text-slate-200 mb-6 flex items-center gap-2">
-                    <Wand2 className="w-5 h-5 text-brand-cyan" />
-                    Lumina's Response
-                </h2>
-
-                <AnimatePresence mode="wait">
-                    {loading ? (
-                        <motion.div
-                            key="loader"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="flex-1 flex items-center justify-center glass-panel rounded-2xl border-dashed border-white/20"
-                        >
-                            <Loader />
-                        </motion.div>
-                    ) : (result || streamedResult) ? (
-                        <motion.div
-                            key="result"
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="flex-1 flex flex-col"
-                        >
-                            <Card className="flex-1 flex flex-col border-brand-cyan/20 bg-black/40 backdrop-blur-xl relative group">
-                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Button size="icon" variant="ghost" onClick={copyToClipboard} title="Copy">
-                                        {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
-                                    </Button>
-                                    <Button size="icon" variant="ghost" onClick={() => { setResult(''); setStreamedResult(''); }} title="Clear">
-                                        <RefreshCw className="w-4 h-4" />
-                                    </Button>
-                                </div>
-
-                                <div className="flex-1 overflow-auto custom-scrollbar p-2">
-                                    <div className="prose prose-invert max-w-none prose-headings:text-brand-cyan prose-p:text-slate-300 prose-strong:text-white">
-                                        <div className="whitespace-pre-wrap font-sans leading-relaxed text-lg">
-                                            {streamedResult}
-                                            <motion.span
-                                                animate={{ opacity: [0, 1, 0] }}
-                                                transition={{ duration: 0.8, repeat: Infinity }}
-                                                className="inline-block w-2.5 h-6 bg-brand-cyan ml-1 align-middle"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-center text-xs text-slate-500 font-mono">
-                                    <div className="flex gap-4">
-                                        <span>TOKENS: {result.length}</span>
-                                        <span>TIME: 0.8s</span>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-brand-cyan">
-                                        <Zap className="w-3 h-3" />
-                                        GENERATED
-                                    </div>
-                                </div>
-                            </Card>
-                        </motion.div>
-                    ) : (
-                        <motion.div
-                            key="empty"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="flex-1 flex flex-col items-center justify-center glass-panel rounded-2xl border-dashed border-white/20 text-slate-500"
-                        >
-                            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                                <Sparkles className="w-8 h-8 opacity-20" />
-                            </div>
-                            <p>Ready to create something amazing?</p>
-                        </motion.div>
                     )}
-                </AnimatePresence>
-            </motion.div>
+
+                    {/* Action Bar */}
+                    <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+                        <div className="flex items-center gap-2 text-xs text-[#64748B]">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#4F8EF7]" />
+                            <span>Powered by Gemini 3.6 Flash</span>
+                        </div>
+
+                        <Button
+                            variant="primary"
+                            size="default"
+                            onClick={() => handleGenerate()}
+                            disabled={!prompt.trim()}
+                            className="px-4 gap-2"
+                        >
+                            <span>Draft Content</span>
+                            <CornerDownLeft className="w-3.5 h-3.5 text-white/70" />
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Quick Starter Suggestions */}
+                <div className="space-y-2">
+                    <p className="text-[11px] font-medium text-[#64748B] uppercase tracking-wider px-1">
+                        Suggested Starters
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {QUICK_STARTERS.map((item, idx) => (
+                            <button
+                                key={idx}
+                                onClick={() => {
+                                    setPrompt(item.prompt);
+                                    setContentType(item.type);
+                                    setTone(item.tone);
+                                }}
+                                className="text-left p-3 rounded-[6px] bg-[#171A21] border border-white/[0.06] hover:bg-[#1D212A] hover:border-white/[0.12] transition-colors duration-100 group"
+                            >
+                                <p className="text-xs font-medium text-[#F8FAFC] group-hover:text-[#4F8EF7] transition-colors mb-1">
+                                    {item.title}
+                                </p>
+                                <p className="text-[11px] text-[#94A3B8] line-clamp-2 leading-relaxed">
+                                    {item.prompt}
+                                </p>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // VIEW 2: LOADING STATE (Minimalist Linear-style spinner)
+    // =========================================================================
+    if (loading) {
+        return (
+            <div className="max-w-3xl mx-auto py-24 px-4 flex flex-col items-center justify-center text-center">
+                <div className="w-8 h-8 rounded-full border-2 border-[#4F8EF7]/20 border-t-[#4F8EF7] animate-spin mb-4" />
+                <h3 className="text-sm font-medium text-[#F8FAFC] mb-1">
+                    Compiling your draft...
+                </h3>
+                <p className="text-xs text-[#64748B] max-w-sm">
+                    Structuring clear arguments, refining tone, and formatting layout.
+                </p>
+            </div>
+        );
+    }
+
+    // =========================================================================
+    // VIEW 3: AFTER GENERATION — Professional Two-Column Workstation
+    // =========================================================================
+    return (
+        <div className="max-w-6xl mx-auto space-y-4 animate-in fade-in duration-150">
+            {/* Top Workspace Bar */}
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+                <div className="flex items-center gap-3">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleNewDraft}
+                        className="text-xs text-[#94A3B8] hover:text-white gap-1.5"
+                    >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>New Draft</span>
+                    </Button>
+                    <span className="text-xs text-[#64748B]">|</span>
+                    <Badge variant="accent">{contentType}</Badge>
+                    <Badge variant="outline">{tone}</Badge>
+                </div>
+
+                {/* Right Actions */}
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIsEditing(!isEditing)}
+                        className="gap-1.5"
+                    >
+                        {isEditing ? <Eye className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
+                        <span>{isEditing ? 'Preview' : 'Edit'}</span>
+                    </Button>
+
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleCopy}
+                        className="gap-1.5"
+                    >
+                        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </Button>
+
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleExport('md')}
+                        className="gap-1.5"
+                    >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Export .md</span>
+                    </Button>
+                </div>
+            </div>
+
+            {/* Two-Column Studio Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                {/* Left Column: Context & Refinement Dock (4 cols) */}
+                <div className="lg:col-span-4 space-y-4">
+                    {/* Prompt Recap Card */}
+                    <div className="bg-[#171A21] border border-white/[0.08] rounded-[8px] p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-medium text-[#64748B] uppercase tracking-wider">
+                                Active Brief
+                            </span>
+                            <span className="text-[10px] text-[#64748B] font-mono">
+                                {prompt.length} chars
+                            </span>
+                        </div>
+
+                        <p className="text-xs text-[#CBD5E1] line-clamp-4 leading-relaxed bg-[#1D212A] p-2.5 rounded border border-white/[0.06]">
+                            {prompt}
+                        </p>
+
+                        {/* Document Stats */}
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.06] text-center">
+                            <div className="bg-[#1D212A] p-2 rounded">
+                                <p className="text-[10px] text-[#64748B]">Words</p>
+                                <p className="text-xs font-mono font-semibold text-white">{wordCount}</p>
+                            </div>
+                            <div className="bg-[#1D212A] p-2 rounded">
+                                <p className="text-[10px] text-[#64748B]">Chars</p>
+                                <p className="text-xs font-mono font-semibold text-white">{charCount}</p>
+                            </div>
+                            <div className="bg-[#1D212A] p-2 rounded">
+                                <p className="text-[10px] text-[#64748B]">Read</p>
+                                <p className="text-xs font-mono font-semibold text-white">{readingTime}m</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Quick Refine Directive Buttons */}
+                    <div className="bg-[#171A21] border border-white/[0.08] rounded-[8px] p-4 space-y-2.5">
+                        <span className="text-[11px] font-medium text-[#64748B] uppercase tracking-wider block">
+                            Quick Refine
+                        </span>
+
+                        <div className="space-y-1.5">
+                            <button
+                                onClick={() => handleQuickRefine('Make this draft more concise, punchy, and cut filler words.')}
+                                className="w-full text-left text-xs text-[#94A3B8] hover:text-[#F8FAFC] p-2 rounded bg-[#1D212A] hover:bg-[#242934] border border-white/[0.06] transition-colors flex items-center justify-between"
+                            >
+                                <span>Make punchier & concise</span>
+                                <ArrowRight className="w-3 h-3 text-[#64748B]" />
+                            </button>
+
+                            <button
+                                onClick={() => handleQuickRefine('Add a stronger opening hook and clear bulleted takeaways at the end.')}
+                                className="w-full text-left text-xs text-[#94A3B8] hover:text-[#F8FAFC] p-2 rounded bg-[#1D212A] hover:bg-[#242934] border border-white/[0.06] transition-colors flex items-center justify-between"
+                            >
+                                <span>Strengthen hook & takeaways</span>
+                                <ArrowRight className="w-3 h-3 text-[#64748B]" />
+                            </button>
+
+                            <button
+                                onClick={() => handleQuickRefine('Rewrite in a more conversational, direct, and relatable tone.')}
+                                className="w-full text-left text-xs text-[#94A3B8] hover:text-[#F8FAFC] p-2 rounded bg-[#1D212A] hover:bg-[#242934] border border-white/[0.06] transition-colors flex items-center justify-between"
+                            >
+                                <span>Shift to conversational tone</span>
+                                <ArrowRight className="w-3 h-3 text-[#64748B]" />
+                            </button>
+
+                            <button
+                                onClick={() => handleGenerate()}
+                                className="w-full text-left text-xs text-[#4F8EF7] hover:text-white p-2 rounded bg-[#4F8EF7]/10 hover:bg-[#4F8EF7]/20 border border-[#4F8EF7]/20 transition-colors flex items-center justify-between"
+                            >
+                                <span>Regenerate fresh variation</span>
+                                <RefreshCw className="w-3 h-3" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right Column: Notion-style Document Canvas (8 cols) */}
+                <div className="lg:col-span-8 bg-[#171A21] border border-white/[0.08] rounded-[8px] p-6 shadow-subtle min-h-[500px]">
+                    {isEditing ? (
+                        <div>
+                            <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/[0.06]">
+                                <span className="text-xs font-mono text-[#64748B]">Raw Markdown Editor</span>
+                                <span className="text-xs text-[#4F8EF7]">Changes saved in view</span>
+                            </div>
+                            <Textarea
+                                rows={20}
+                                value={editableText}
+                                onChange={(e) => setEditableText(e.target.value)}
+                                className="w-full font-mono text-xs bg-[#1D212A] border-white/[0.08] text-[#F8FAFC] leading-relaxed p-4 h-[440px]"
+                            />
+                        </div>
+                    ) : (
+                        <div className="prose-container">
+                            <MarkdownRenderer content={editableText || result} />
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
